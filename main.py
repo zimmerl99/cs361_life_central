@@ -1,9 +1,10 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QLineEdit, QTextEdit, QCheckBox, QScrollArea, QFrame, QDateEdit, QTimeEdit, QStackedLayout, QSizePolicy,
-    QLabel)
+    QLabel, QMessageBox)
 from PyQt6.QtCore import Qt, QDate, QTime
 from PyQt6.QtGui import QPixmap
 import sys
+import requests
 
 
 class LifeCentral(QWidget):
@@ -32,6 +33,9 @@ class LifeCentral(QWidget):
         self.stack.setCurrentWidget(self.home_page)
 
         self.lifes = []
+        self.quote = None
+        self.load_lifes_from_database()
+        self.load_inspirational_quote()
 
     # -----------------------------------------------------------------
     # build the home page
@@ -62,7 +66,7 @@ class LifeCentral(QWidget):
         top_bar.addStretch()
 
         # New life button
-        new_life_btn = QPushButton("Add New LIFE")
+        new_life_btn = QPushButton("+ New LIFE")
         new_life_btn.setFixedSize(200, 40)
         new_life_btn.setStyleSheet("""QPushButton {background-color: #ffb7c5; color: black; font-weight: bold;
                                         font-size: 24px; border-radius: 8px; padding: 8px 16px; border: 2px solid black;}
@@ -117,14 +121,14 @@ class LifeCentral(QWidget):
 
 
         # main content area
-        life_box = QVBoxLayout()
-        life_box.setContentsMargins(20,10,20,10)
+        self.life_box = QVBoxLayout()
+        self.life_box.setContentsMargins(20,10,20,10)
 
         # title for life list
         life_title = QLabel("LIFEs")
         life_title.setStyleSheet("font-size: 24px; font-weight: bold; color: black;")
         life_title.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        life_box.addWidget(life_title)
+        self.life_box.addWidget(life_title)
 
         # Scroll area for LIFE list
         life_list = QScrollArea()
@@ -134,9 +138,9 @@ class LifeCentral(QWidget):
         self.life_layout = QVBoxLayout(self.list_content)
         self.life_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         life_list.setWidget(self.list_content)
-        life_box.addWidget(life_list)
-        life_box.addStretch()
-        content_layout.addLayout(life_box)        
+        self.life_box.addWidget(life_list)
+        #self.life_box.addStretch()
+        content_layout.addLayout(self.life_box)        
 
         layout.addLayout(content_layout)
 
@@ -214,12 +218,6 @@ class LifeCentral(QWidget):
         self.time_until_entry.setMaximumWidth(100)
         layout.addWidget(self.time_until_entry)
 
-        # label for color
-        #color_title = QLabel("Color: ")
-        #color_title.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        #color_title.setStyleSheet(""" font-size: 20px; font-weight: bold; color: white; """)
-        #layout.addWidget(color_title)
-
         # color entry
         color_layout = QHBoxLayout()
         colors = ["#FF0000", "#FF7300", "#FFCC00", "#007A00", "#0080FF", "#3700FF", "#9000FF", "#FFA7F8"]
@@ -285,6 +283,8 @@ class LifeCentral(QWidget):
         return
     def show_home_page(self):
         self.stack.setCurrentWidget(self.home_page)
+        self.load_lifes_from_database()
+        self.load_inspirational_quote()
         return
     
     # -----------------------------------------------------------------
@@ -302,63 +302,198 @@ class LifeCentral(QWidget):
                 break
 
     def save_life(self):
-        title = self.life_title_entry.text().strip()
+        import requests
+        
+        title = self.life_title_entry.text().strip()   # removes whitespace
         if not title:
-            return
+            return                                    # title is required so it will not save wihtout it
 
-        date = self.date_entry.date().toString("MM/dd/yyyy")
-        time = self.time_entry.time().toString("hh:mm AP")
-        time_until = self.time_until_entry.time().toString("hh:mm AP")
-        color = self.selected_color
-        notes = self.notes_entry.toPlainText().strip()
-
-        # Add LIFE with checkbox to Home Page
-        if time_until == "12:00 AM":                           # no time until provided
-            if time == "12:00 AM":                             # and no time provided
-                if date == "01/01/2025":                       # and no date provided
-                    checkbox = QCheckBox(f"{title}")  
-                else:                                          # just date
-                    checkbox = QCheckBox(f"{title} — {date}")
-            elif date == "01/01/2025":
-                checkbox = QCheckBox(f"{title} @ {time}") 
-            else:                                              # time provided but no time until
-                checkbox = QCheckBox(f"{title} — {date} @ {time}")
-        elif time == "12:00 AM":                               # time until but no time
-            if time_until == "12:00 AM": 
-                if date == "01/01/2025":
-                    checkbox = QCheckBox(f"{title}")
-                else:
-                    checkbox = QCheckBox(f"{title} — {date}")
-            elif date == "01/01/2025":
-                checkbox = QCheckBox(f"{title} @ {time_until}")
-            else:
-                checkbox = QCheckBox(f"{title} — {date} @ {time_until}")
-        elif date == "01/01/2025":
-            if time == "12:00 AM":
-                checkbox = QCheckBox(f"{title} @ {time_until}")
-            elif time_until == "12:00 AM":
-                checkbox = QCheckBox(f"{title} @ {time}")
-            else:
-                checkbox = QCheckBox(f"{title} @ {time} to {time_until}")
-        else:                                                  # all provided
-            checkbox = QCheckBox(f"{title} — {date} @ {time} to {time_until}")
+        # convert the entry values to strings
+        date = self.date_entry.date().toString("yyyy-MM-dd")        
+        time = self.time_entry.time().toString("HH:mm")                 #uses military time atm
+        time_until = self.time_until_entry.time().toString("HH:mm")
+        
+        # colors mapped to a number 1-8
+        colors = ["#FF0000", "#FF7300", "#FFCC00", "#007A00", "#0080FF", "#3700FF", "#9000FF", "#FFA7F8"]
+        if self.selected_color in colors:
+            color_num = colors.index(self.selected_color) + 1               # plus 1 cause its an index
+        else:
+            color_num = 1                                               # defaults to red
+        
+        # Prepare data to send to API
+        life_data = {
+            "title": title,                                                 #required
+            "date": date if date != "2025-01-01" else None,                 #optional
+            "time": time if time != "00:00" else None,                      #optional
+            "time_till": time_until if time_until != "00:00" else None,     #optional
+            "color": color_num                                              #autoselected so has to be 1 (of 8)
+        }
+        
+        try:
+            # send POST request
+            response = requests.post("http://127.0.0.1:8000/lifes", json=life_data)
             
-        checkbox.setStyleSheet(f"""
-            QCheckBox {{font-size: 18px; color: {color}; padding: 5px; spacing: 10px; font-weight: bold;}}
-            QCheckBox::indicator {{ width: 20px; height: 20px; border: 2px solid black; background-color: white;}}
-            QCheckBox::indicator:checked {{background-color: {color};border: 2px solid black;}}""")
-
-        checkbox.setToolTip(notes)
-        self.life_layout.addWidget(checkbox)
-        self.lifes.append(checkbox)
-
+            # if success reload all lifes from database
+            if response.status_code == 200:
+                self.load_lifes_from_database()
+            else:
+                print("Error saving life to database")
+        
+        except Exception:
+            print("Error connecting to API:")
+        
         # Clear fields and return to home
         self.life_title_entry.clear()
         self.notes_entry.clear()
-        self.date_entry.setDate(QDate(2000, 1, 1))
+        self.date_entry.setDate(QDate(2025, 1, 1))
         self.time_entry.setTime(QTime(0, 0))
         self.time_until_entry.setTime(QTime(0, 0))
         self.show_home_page()
+
+    def load_lifes_from_database(self):
+        
+        try:
+            # GET REQUEST all lifes from database
+            response = requests.get("http://127.0.0.1:8000/lifes")
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Clear existing lifes from display
+                for i in reversed(range(self.life_layout.count())):         # for every layout
+                    layout_item = self.life_layout.itemAt(i)                # get the item at that layout
+                    
+                    if layout_item.layout():  # It's a QHBoxLayout
+                        inner_layout = layout_item.layout()
+                        for j in reversed(range(inner_layout.count())):
+                            inner_layout.itemAt(j).widget().setParent(None)
+                        # Remove the layout itself
+                        self.life_layout.removeItem(layout_item)
+
+                self.lifes = []
+                date_strings = []
+
+                for life in data['data']:
+                    if life.get('date'):                    # get the date of any life
+                        date_strings.append(life['date'])
+
+                # Sort the dates if there are any
+                if date_strings:
+                    sort_request = {"dates": date_strings}
+                    #request the date sorting api
+                    sort_response = requests.post("http://127.0.0.1:8002/dates", json=sort_request)
+                    
+                    if sort_response.status_code == 200:
+                        sorted_data = sort_response.json()
+                        sorted_dates = sorted_data['sorted_dates']
+                        
+                        # Create a mapping of dates to life objects
+                        date_to_life = {life['date']: life for life in data['data'] if life.get('date')}
+                        
+                        # Display lifes in sorted order
+                        for date in sorted_dates:
+                            if date in date_to_life:
+                                self.display_life(date_to_life[date])
+                        
+                        # Display lifes without dates at the end
+                        for life in data['data']:
+                            if not life.get('date'):
+                                self.display_life(life)
+                    else:
+                        print(f"Error: Status code {sort_response.status_code}")
+                else:
+                    # No dates to sort, just display all lifes
+                    for life in data['data']:
+                        self.display_life(life)
+            
+        except Exception:
+            print("Error loading lifes")
+
+    def load_inspirational_quote(self):
+        if self.quote is not None:
+            self.quote.setParent(None)
+            self.quote = None
+
+        try:
+            # GET REQUEST a quote
+            response = requests.get("http://127.0.0.1:8001/quotes")
+            
+            if response.status_code == 200:
+                data = response.json()
+                quote_string = data['data']
+
+                # title for life list
+                self.quote = QLabel(quote_string)
+                self.quote.setStyleSheet("font-size: 24px; font-weight: italic; color: black;")
+                self.quote.setAlignment(Qt.AlignmentFlag.AlignRight)
+                self.quote.setWordWrap(True)
+                self.life_box.addWidget(self.quote)
+
+        except Exception:
+            print("Error loading quote")
+
+
+    def display_life(self, life):
+        life_id = life['life_id']
+        title = life['title']
+        date = life.get('date', '')             #returns a default null value if date doesnt exist
+        time = life.get('time', '')
+        time_till = life.get('time_till', '')
+        color_num = life.get('color', 1)            #default red
+        
+        # Map color number back to hex
+        colors = ["#FF0000", "#FF7300", "#FFCC00", "#007A00", "#0080FF", "#3700FF", "#9000FF", "#FFA7F8"]
+        if 1 <= color_num <= 8:
+            color = colors[color_num - 1]
+        else:
+            colors[0]
+        
+        # build display text
+        display_text = title
+        if date:
+            display_text += f" — {date}"
+        if time and time_till:
+            display_text += f" @ {time} to {time_till}"
+        elif time:
+            display_text += f" @ {time}"
+        elif time_till:
+            display_text += f" until {time_till}"
+
+        item_row = QHBoxLayout()
+        
+        checkbox = QCheckBox(display_text)                  #remove border and outline to bring back black boxes
+        checkbox.setStyleSheet(f"""
+            QCheckBox {{font-size: 18px; color: {color}; padding: 5px; spacing: 10px; font-weight: bold; border: none; outline: none;}}
+            QCheckBox::indicator {{ width: 20px; height: 20px; border: 2px solid black; background-color: white;}}
+            QCheckBox::indicator:checked {{background-color: {color};border: 2px solid black;}}""")
+        item_row.addWidget(checkbox)
+
+        # Create delete button
+        delete_btn = QPushButton("Delete")
+        delete_btn.setFixedSize(40, 20)
+        delete_btn.setStyleSheet("""QPushButton {background-color: #ff4444; color: white; font-weight: bold; font-size: 8px;
+                                    border-radius: 4px; border: 1px red;}
+                                    QPushButton:hover {background-color: #cc0000;}""")
+        
+        def delete_this_life():
+            reply = QMessageBox.question(
+                self, "Confirm Deletion", f"Are you sure you want to delete '{title}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                try:
+                    response = requests.delete(f"http://127.0.0.1:8000/lifes/{life_id}")
+                    if response.status_code == 200:
+                        self.load_lifes_from_database()
+                    else:
+                        print(f"Error deleting item with id {life_id}")
+                except Exception:
+                    print(f"Error in deletion")
+        delete_btn.clicked.connect(delete_this_life)
+
+        item_row.addWidget(delete_btn)
+        self.life_layout.addLayout(item_row)
+        self.lifes.append(checkbox)        
     
 
 # -----------------------------------------------------------------
