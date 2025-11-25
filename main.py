@@ -401,13 +401,19 @@ class LifeCentral(QWidget):
                                 self.display_life(life)
                     else:
                         print(f"Error: Status code {sort_response.status_code}")
+                        for life in data['data']:
+                            self.display_life(life)
                 else:
                     # No dates to sort, just display all lifes
                     for life in data['data']:
                         self.display_life(life)
             
         except Exception:
-            print("Error loading lifes")
+            try:
+                for life in data['data']:
+                    self.display_life(life)
+            except Exception:
+                print("Error loading lifes")
 
     def load_inspirational_quote(self):
         if self.quote is not None:
