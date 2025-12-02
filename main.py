@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, QDate, QTime
 from PyQt6.QtGui import QPixmap
 import sys
 import requests
+import datetime
 
 
 class LifeCentral(QWidget):
@@ -91,14 +92,6 @@ class LifeCentral(QWidget):
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         sidebar_layout.setContentsMargins(0, 8, 0, 0)  # Add some top padding
-
-        # calendar button
-        #calendar_btn = QPushButton("Calendar")
-        #calendar_btn.setFixedSize(100, 80)
-        #calendar_btn.setStyleSheet("""QPushButton {background-color: #cd7ff4; color: black; font-weight: bold;
-                                        #font-size: 14px; border-radius: 32px; padding: 2px 2px; border: 2px solid black;}
-                                      #QPushButton:hover { background-color: #541e6f; }""")
-        #sidebar_layout.addWidget(calendar_btn)
 
         # Sidebar tip
         sidebar_tip = QLabel("LIFE: Any task, event, meeting, goal, or note you want to keep that makes up your life")
@@ -240,6 +233,18 @@ class LifeCentral(QWidget):
         color_layout.addStretch()
         layout.addLayout(color_layout)
 
+        #label for notification
+        noti_title = QLabel("Want to be Notified? Enter your email:")
+        noti_title.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        noti_title.setStyleSheet(""" font-size: 15px; font-weight: bold; color: white; """)
+        layout.addWidget(noti_title)
+
+        # email entry box
+        self.email_entry = QLineEdit()
+        self.email_entry.setStyleSheet("background: white; color: black;")
+        self.email_entry.setPlaceholderText("MUST include a date and a time for notification to be sent")
+        layout.addWidget(self.email_entry)
+
 
         # label for notes
         notes_title = QLabel("Notes: ")
@@ -302,7 +307,6 @@ class LifeCentral(QWidget):
                 break
 
     def save_life(self):
-        import requests
         
         title = self.life_title_entry.text().strip()   # removes whitespace
         if not title:
@@ -312,6 +316,7 @@ class LifeCentral(QWidget):
         date = self.date_entry.date().toString("yyyy-MM-dd")        
         time = self.time_entry.time().toString("HH:mm")                 #uses military time atm
         time_until = self.time_until_entry.time().toString("HH:mm")
+        email = self.email_entry.text().strip()
         
         # colors mapped to a number 1-8
         colors = ["#FF0000", "#FF7300", "#FFCC00", "#007A00", "#0080FF", "#3700FF", "#9000FF", "#FFA7F8"]
@@ -335,7 +340,9 @@ class LifeCentral(QWidget):
             
             # if success reload all lifes from database
             if response.status_code == 200:
-                self.load_lifes_from_database()
+                #self.load_lifes_from_database()
+                if email and date != "2025-01-01" and time != "00:00":
+                    self.send_notification(title, date, time, email)
             else:
                 print("Error saving life to database")
         
@@ -348,6 +355,7 @@ class LifeCentral(QWidget):
         self.date_entry.setDate(QDate(2025, 1, 1))
         self.time_entry.setTime(QTime(0, 0))
         self.time_until_entry.setTime(QTime(0, 0))
+        self.email_entry.clear()
         self.show_home_page()
 
     def load_lifes_from_database(self):
@@ -363,7 +371,7 @@ class LifeCentral(QWidget):
                 for i in reversed(range(self.life_layout.count())):         # for every layout
                     layout_item = self.life_layout.itemAt(i)                # get the item at that layout
                     
-                    if layout_item.layout():  # It's a QHBoxLayout
+                    if layout_item.layout():
                         inner_layout = layout_item.layout()
                         for j in reversed(range(inner_layout.count())):
                             inner_layout.itemAt(j).widget().setParent(None)
@@ -371,42 +379,42 @@ class LifeCentral(QWidget):
                         self.life_layout.removeItem(layout_item)
 
                 self.lifes = []
-                date_strings = []
-
-                for life in data['data']:
-                    if life.get('date'):                    # get the date of any life
-                        date_strings.append(life['date'])
-
-                # Sort the dates if there are any
-                if date_strings:
+                
+                # Separate lifes with dates from those without
+                lifes_with_dates = [life for life in data['data'] if life.get('date')]
+                lifes_without_dates = [life for life in data['data'] if not life.get('date')]
+                
+                # Sort lifes with dates if there are any
+                if lifes_with_dates:
+                    date_strings = [life['date'] for life in lifes_with_dates]
                     sort_request = {"dates": date_strings}
-                    #request the date sorting api
-                    sort_response = requests.post("http://127.0.0.1:8002/dates", json=sort_request)
                     
-                    if sort_response.status_code == 200:
-                        sorted_data = sort_response.json()
-                        sorted_dates = sorted_data['sorted_dates']
+                    try:
+                        sort_response = requests.post("http://127.0.0.1:8002/dates", json=sort_request)
                         
-                        # Create a mapping of dates to life objects
-                        date_to_life = {life['date']: life for life in data['data'] if life.get('date')}
-                        
-                        # Display lifes in sorted order
-                        for date in sorted_dates:
-                            if date in date_to_life:
-                                self.display_life(date_to_life[date])
-                        
-                        # Display lifes without dates at the end
-                        for life in data['data']:
-                            if not life.get('date'):
+                        if sort_response.status_code == 200:
+                            sorted_data = sort_response.json()
+                            sorted_dates = sorted_data['sorted_dates']
+
+                            sorted_dates = list(dict.fromkeys(sorted_dates))
+                            
+                            # Display lifes in sorted order by date
+                            for date in sorted_dates:
+                                # Display ALL lifes with this date (not just one)
+                                for life in lifes_with_dates:
+                                    if life['date'] == date:
+                                        self.display_life(life)
+                        else:
+                            # If sorting fails, just display in original order
+                            for life in lifes_with_dates:
                                 self.display_life(life)
-                    else:
-                        print(f"Error: Status code {sort_response.status_code}")
-                        for life in data['data']:
+                    except Exception:
+                        for life in lifes_with_dates:
                             self.display_life(life)
-                else:
-                    # No dates to sort, just display all lifes
-                    for life in data['data']:
-                        self.display_life(life)
+                
+                # Display lifes without dates at the end
+                for life in lifes_without_dates:
+                    self.display_life(life)
             
         except Exception:
             try:
@@ -500,6 +508,30 @@ class LifeCentral(QWidget):
         item_row.addWidget(delete_btn)
         self.life_layout.addLayout(item_row)
         self.lifes.append(checkbox)        
+
+
+    def send_notification(self, title, date, time, email):
+
+        send_datetime = f"{date} {time}"
+
+        url = "http://localhost:3000/schedule_email"
+
+        payload = {
+            "to": email,
+            "from": "zimmerl@oregonstate.edu", 
+            "subject": f"{title} Reminder",
+            "body": f"LIFE Reminder: {title} is occuring now, at {time}",
+            "send_datetime": send_datetime
+        }
+
+        try:
+            response = requests.post(url, json=payload)
+            if response.status_code == 200:
+                print(f"Email scheduled for {send_datetime}")
+            else:
+                print(f"Error scheduling email: {response.json()}")
+        except Exception as e:
+            print(f"Error: {e}")
     
 
 # -----------------------------------------------------------------
